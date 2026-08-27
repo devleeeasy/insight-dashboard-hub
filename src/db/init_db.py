@@ -50,7 +50,9 @@ DDL_STATEMENTS = {
             data_freshness ENUM('static', 'realtime') NOT NULL DEFAULT 'static'
                 COMMENT '데이터 갱신 방식 - static(정적 배치) / realtime(주기적 실시간 수집)',
             refresh_interval_minutes INT NULL
-                COMMENT 'realtime 대시보드의 수집 주기(분). static이면 NULL'
+                COMMENT 'realtime 대시보드의 수집 주기(분). static이면 NULL',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                COMMENT '등록 시각 (Asia/Seoul 기준 - 세션 타임존 +09:00 고정, DEFAULT로 자동 채움)'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
           COMMENT='등록된 대시보드(분석 주제) 메타데이터. 새 주제는 코드 수정 없이 이 테이블에 행을 추가해 등록한다.'
     """,

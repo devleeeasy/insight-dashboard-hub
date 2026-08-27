@@ -19,6 +19,7 @@ Metadata-driven dashboard hub for exploring segment-level insights across multip
 | `ott_vs_spending` | OTT 이용 강도 × 소비 지출 상관관계 | 미디어 이용 행태와 가계 소비 지출을 세그먼트 단위로 결합해 분석 |
 | `age_spending_compare` | 연령대별 소비 카테고리 비교 | 가계동향조사 기반 연령대별 지출 구조 비교 |
 | `urban_rural_media` | 도시/비도시 미디어 이용 격차 | 방송매체 이용행태조사 기반 도시/비도시 비교 |
+| `realtime_foot_traffic` | 실시간 상권 유동인구 모니터링 | 서울시 실시간 도시데이터 API 기반 주요 상권 유동인구·혼잡도 실시간 추이 (`data_freshness='realtime'`) |
 
 새로운 주제는 코드 수정 없이 `dashboard_registry` 테이블에 행을 추가하는 것만으로 등록됩니다. (등록 방법은 [대시보드 등록하기](#새-대시보드-주제-등록하기) 참고)
 
@@ -202,6 +203,7 @@ python -m src.db.init_db
 
 # 4-1. (기존 DB가 있다면) 스키마 변경분 마이그레이션 적용
 python -m src.db.migrations.m0001_add_dashboard_freshness_columns
+python -m src.db.migrations.m0002_add_created_at_to_dashboard_registry
 
 # 5. 전처리 파이프라인 실행 (S3 원본 → 가공 → MySQL 적재)
 python -m src.preprocessing.ott_spending.run_pipeline
@@ -212,7 +214,10 @@ uvicorn src.api.main:app --reload
 # 7. 대시보드 허브 실행
 streamlit run dashboard/app.py
 
-# 8. (실시간 상권 유동인구 주제) 수집기 1회 실행
+# 8. (실시간 상권 유동인구 주제) dashboard_registry에 등록
+python -m src.collectors.foot_traffic.register_dashboard
+
+# 9. (실시간 상권 유동인구 주제) 수집기 1회 실행
 python -m src.collectors.foot_traffic.collect
 ```
 

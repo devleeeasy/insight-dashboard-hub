@@ -46,6 +46,11 @@ BACKOFF_BASE_SECONDS = 2  # 1차 실패 후 2초, 2차 실패 후 4초 대기
 
 
 def _places() -> list[str]:
+    # TODO: 지금은 .env(FOOT_TRAFFIC_PLACES)로 고정 관리 중.
+    # 장소가 늘어나거나 재배포 없이 운영 중 추가/삭제하고 싶어지면,
+    # dashboard_registry처럼 MySQL 테이블(foot_traffic_places: place_name,
+    # is_active, display_order)로 옮기고 여기서 fetch_all로 조회하도록 변경.
+    # (5단계 dashboard_registry 등록 이후에 논의하기로 함)
     raw = os.environ.get("FOOT_TRAFFIC_PLACES", DEFAULT_PLACES)
     return [p.strip() for p in raw.split(",") if p.strip()]
 
