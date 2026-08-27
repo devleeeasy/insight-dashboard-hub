@@ -5,7 +5,7 @@ dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
 4개 테이블을 생성한다. 이미 존재하면 건드리지 않는다(CREATE TABLE IF NOT EXISTS).
 
 실행:
-  python src/db/init_db.py
+  python -m src.db.init_db
 
 환경변수 (.env, .env.example 참고):
   MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
@@ -46,7 +46,11 @@ DDL_STATEMENTS = {
             display_order INT
                 COMMENT '사이드바 메뉴 노출 순서 (오름차순)',
             is_active BOOLEAN DEFAULT TRUE
-                COMMENT '비활성화 시 삭제 없이 메뉴에서만 숨김'
+                COMMENT '비활성화 시 삭제 없이 메뉴에서만 숨김',
+            data_freshness ENUM('static', 'realtime') NOT NULL DEFAULT 'static'
+                COMMENT '데이터 갱신 방식 - static(정적 배치) / realtime(주기적 실시간 수집)',
+            refresh_interval_minutes INT NULL
+                COMMENT 'realtime 대시보드의 수집 주기(분). static이면 NULL'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
           COMMENT='등록된 대시보드(분석 주제) 메타데이터. 새 주제는 코드 수정 없이 이 테이블에 행을 추가해 등록한다.'
     """,

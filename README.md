@@ -198,7 +198,10 @@ pip install -r requirements.txt
 # MYSQL_HOST=... MYSQL_USER=... MYSQL_PASSWORD=... MYSQL_DB=...
 
 # 4. MySQL 스키마 생성
-python src/db/init_db.py
+python -m src.db.init_db
+
+# 4-1. (기존 DB가 있다면) 스키마 변경분 마이그레이션 적용
+python -m src.db.migrations.m0001_add_dashboard_freshness_columns
 
 # 5. 전처리 파이프라인 실행 (S3 원본 → 가공 → MySQL 적재)
 python -m src.preprocessing.ott_spending.run_pipeline
