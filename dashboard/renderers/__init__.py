@@ -4,18 +4,23 @@
     metrics(df, config) -> list[(label, value, delta|None)]
     figure(df, config)  -> (plotly.graph_objects.Figure, y_axis_title)
 
+단, 위젯이 여러 개라 "지표4개+차트1개" 틀에 안 맞는 렌더러는 대신 아래 함수 하나만 노출한다.
+    render_full(df, config) -> None   (Streamlit 호출까지 렌더러가 직접 담당)
+app.py가 render_full 존재 여부로 두 계약을 구분해서 호출한다 (realtime_monitor 참고).
+
 새 chart_type 을 추가할 때만 이 파일을 수정한다. 개별 주제는 건드리지 않는다.
 """
 
 import pandas as pd
 
-from . import comparison, correlation, distribution, trend
+from . import comparison, correlation, distribution, realtime_monitor, trend
 
 RENDERERS = {
     "comparison": comparison,
     "correlation": correlation,
     "trend": trend,
     "distribution": distribution,
+    "realtime_monitor": realtime_monitor,
 }
 
 

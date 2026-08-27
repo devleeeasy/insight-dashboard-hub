@@ -24,6 +24,7 @@ CHART_TYPE_LABEL = {
     "comparison": "기술 통계",
     "trend": "시계열 분석",
     "distribution": "분포 분석",
+    "realtime_monitor": "실시간 모니터링",
 }
 
 _CSS = f"""
@@ -57,9 +58,10 @@ html, body, [class*="css"] {{ font-family: {FONT_STACK}; }}
 [data-testid="stMetricLabel"] p {{
   font-size: 12.5px !important; font-weight: 500; color: {TEXT_MUTED}; word-break: keep-all;
 }}
-[data-testid="stMetricValue"] {{
-  font-family: 'IBM Plex Sans', 'Noto Sans KR', sans-serif; font-size: 34px; font-weight: 600;
-  letter-spacing: -1.2px; font-variant-numeric: tabular-nums; white-space: nowrap;
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] * {{
+  font-family: 'IBM Plex Sans', 'Noto Sans KR', sans-serif; font-size: 28px; font-weight: 600;
+  letter-spacing: -0.8px; font-variant-numeric: tabular-nums;
+  white-space: nowrap !important; overflow: visible !important; text-overflow: unset !important;
 }}
 [data-testid="stMetricDelta"] {{ font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }}
 

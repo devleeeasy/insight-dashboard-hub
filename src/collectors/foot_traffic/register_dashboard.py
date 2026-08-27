@@ -21,7 +21,7 @@ DASHBOARD_ROW = {
     "dashboard_id": "realtime_foot_traffic",
     "title": "실시간 상권 유동인구 모니터링",
     "description": "서울시 실시간 도시데이터 API 기반 주요 상권의 실시간 유동인구·혼잡도 추이",
-    "chart_type": "trend",
+    "chart_type": "realtime_monitor",
     "data_source_table": "foot_traffic_timeseries",
     "x_axis_column": "snapshot_time",
     "y_axis_column": "population_max",
