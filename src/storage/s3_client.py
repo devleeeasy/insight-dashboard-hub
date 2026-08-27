@@ -76,6 +76,18 @@ def read_parquet(topic: str, filename: str) -> pd.DataFrame:
     return pd.read_parquet(io.BytesIO(obj["Body"].read()))
 
 
+def write_raw_bytes(topic: str, filename: str, data: bytes) -> str:
+    """원본 응답(XML/JSON 등)을 raw 레이어에 그대로 저장 (감사/재현용).
+
+    CSV처럼 사람이 직접 올리는 원본과 달리, 실시간 수집기가 API 응답을 받은
+    그대로 적재할 때 사용한다. 원본은 절대 수정하지 않는다는 원칙은 동일하게 적용.
+    """
+    key = _key("raw", topic, filename)
+    _client().put_object(Bucket=BUCKET_NAME, Key=key, Body=data)
+    logger.info("원본 저장 완료: s3://%s/%s (%d bytes)", BUCKET_NAME, key, len(data))
+    return f"s3://{BUCKET_NAME}/{key}"
+
+
 def list_raw_files(topic: str) -> list[str]:
     """특정 주제의 raw 파일 목록 조회 (파이프라인 실행 전 존재 확인용)."""
     prefix = _key("raw", topic, "")
