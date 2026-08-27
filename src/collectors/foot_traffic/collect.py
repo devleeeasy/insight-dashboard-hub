@@ -14,7 +14,9 @@
 
 환경변수 (.env, .env.example 참고):
   SEOUL_OPENAPI_KEY   서울시 실시간 도시데이터 API 인증키 (개발 중엔 샘플키)
-  FOOT_TRAFFIC_PLACES 조회할 장소명 목록, 콤마 구분 (기본값: 광화문·덕수궁 - 샘플키로 바로 테스트 가능)
+
+수집 대상 장소는 foot_traffic_places 테이블의 is_active=1 행으로 관리한다
+(src.db.seeds.seed_foot_traffic_places로 최초 시드, 이후 켜고 끄기는 이 테이블 갱신으로).
 """
 
 import logging
@@ -29,7 +31,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from src.db.mysql_client import bulk_upsert, now_kst
+from src.db.mysql_client import bulk_upsert, fetch_all, now_kst
 from src.storage.s3_client import write_raw_bytes
 
 logging.basicConfig(level=logging.INFO)
@@ -39,20 +41,20 @@ TOPIC = "foot_traffic"
 TABLE = "foot_traffic_timeseries"
 
 SEOUL_API_BASE = "http://openAPI.seoul.go.kr:8088"
-DEFAULT_PLACES = "광화문·덕수궁"  # 서울시 샘플키로 조회 가능한 유일한 장소
 
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_SECONDS = 2  # 1차 실패 후 2초, 2차 실패 후 4초 대기
 
 
 def _places() -> list[str]:
-    # TODO: 지금은 .env(FOOT_TRAFFIC_PLACES)로 고정 관리 중.
-    # 장소가 늘어나거나 재배포 없이 운영 중 추가/삭제하고 싶어지면,
-    # dashboard_registry처럼 MySQL 테이블(foot_traffic_places: place_name,
-    # is_active, display_order)로 옮기고 여기서 fetch_all로 조회하도록 변경.
-    # (5단계 dashboard_registry 등록 이후에 논의하기로 함)
-    raw = os.environ.get("FOOT_TRAFFIC_PLACES", DEFAULT_PLACES)
-    return [p.strip() for p in raw.split(",") if p.strip()]
+    """foot_traffic_places에서 활성화된(is_active=1) 장소명 목록을 조회.
+
+    API가 이 테이블에 시드된 121개 고정 목록 외 장소는 지원하지 않으므로,
+    "장소를 사용자가 정한다"는 이 테이블의 is_active를 켜고 끄는 것으로 구현한다
+    (재배포 없이 운영 중 변경 가능).
+    """
+    rows = fetch_all("SELECT area_name FROM foot_traffic_places WHERE is_active = 1")
+    return [row["area_name"] for row in rows]
 
 
 def _build_url(place_name: str) -> str:

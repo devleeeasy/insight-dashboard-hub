@@ -1,8 +1,9 @@
 """
 MySQL 스키마 생성 스크립트
 
-dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
-4개 테이블을 생성한다. 이미 존재하면 건드리지 않는다(CREATE TABLE IF NOT EXISTS).
+dashboard_registry, segment_dim, household_spending_agg, media_usage_agg,
+foot_traffic_timeseries, foot_traffic_places 테이블을 생성한다.
+이미 존재하면 건드리지 않는다(CREATE TABLE IF NOT EXISTS).
 
 실행:
   python -m src.db.init_db
@@ -155,6 +156,25 @@ DDL_STATEMENTS = {
                 COMMENT '동일 장소x시각 중복 적재 방지 (멱등성) - 수집 재시도/재실행 시 upsert 키'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
           COMMENT='서울시 실시간 도시데이터 API 기반 상권 유동인구/날씨/지하철/따릉이 시계열 스냅샷 (실시간 주제, 주기적 폴링으로 적재)'
+    """,
+    "foot_traffic_places": """
+        CREATE TABLE IF NOT EXISTS foot_traffic_places (
+            area_cd VARCHAR(20) PRIMARY KEY
+                COMMENT '장소 코드 (서울시 실시간 도시데이터 API AREA_CD, 예: POI009)',
+            area_name VARCHAR(50) NOT NULL
+                COMMENT '장소명 (API AREA_NM, 예: 광화문·덕수궁) - collect.py가 API 호출 시 이 값을 사용',
+            category VARCHAR(30) NOT NULL
+                COMMENT '장소 분류 (관광특구/고궁·문화유산/인구밀집지역/발달상권/공원)',
+            english_name VARCHAR(200) NULL
+                COMMENT '영문명 (API ENG_NM)',
+            is_active BOOLEAN NOT NULL DEFAULT FALSE
+                COMMENT '실시간 수집 대상 여부 - 대시보드에서 사용자가 켜고 끔. API가 자유 장소 조회를 지원하지 않아, 이 고정 121개 목록 중에서 고르는 방식으로 "사용자 입력"을 구현함',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                COMMENT '레코드 생성(시드) 시각 (Asia/Seoul 기준 - 세션 타임존 +09:00 고정, DEFAULT로 자동 채움)',
+            UNIQUE KEY uq_area_name (area_name)
+                COMMENT '장소명 중복 방지 - collect.py가 장소명으로 API를 조회하므로 이름도 유일해야 함'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+          COMMENT='서울시 실시간 도시데이터 API가 지원하는 전체 121개 장소 목록과 실시간 수집 활성화 여부 (foot_traffic 수집기는 is_active=1인 장소만 폴링)'
     """,
 }
 
