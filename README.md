@@ -211,7 +211,35 @@ uvicorn src.api.main:app --reload
 
 # 7. 대시보드 허브 실행
 streamlit run dashboard/app.py
+
+# 8. (실시간 상권 유동인구 주제) 수집기 1회 실행
+python -m src.collectors.foot_traffic.collect
 ```
+
+### 실시간 주제 스케줄링
+
+`ott_vs_spending` 등 정적 주제와 달리, 실시간 상권 유동인구 주제는 수집기를 주기적으로
+실행해야 한다. 프로세스 내 스케줄러(APScheduler)와 OS 레벨 스케줄러(cron) 중,
+`collect.py`가 다른 배치 스크립트(`init_db.py`, `run_pipeline.py`)와 동일하게
+"한 번 실행하고 끝나는" 구조로 만들어져 있어 **cron 방식**을 사용한다 — 실행마다
+프로세스가 새로 뜨고 끝나 상태를 안 가지므로 장시간 실행에 따른 메모리 누수/드리프트
+걱정이 없고, 별도 상시 프로세스(데몬)를 추가로 운영/관리할 필요가 없다.
+
+리눅스 서버에 배포하는 경우 (예: 5분 주기):
+
+```bash
+*/5 * * * * cd /path/to/insight-dashboard-hub && /path/to/venv/bin/python -m src.collectors.foot_traffic.collect >> logs/foot_traffic.log 2>&1
+```
+
+로컬 Windows 개발 환경에서는 cron이 없으므로 대신 Task Scheduler(`schtasks`)를 사용한다:
+
+```powershell
+schtasks /Create /SC MINUTE /MO 5 /TN "FootTrafficCollector" ^
+  /TR "python -m src.collectors.foot_traffic.collect" /ST 00:00
+```
+
+AWS에 배포한다면 EventBridge Scheduler + Lambda(또는 ECS Task) 조합으로 완전관리형
+cron으로 자연스럽게 옮겨갈 수 있다.
 
 ## 한계 (첫 번째 등록 주제 기준)
 
