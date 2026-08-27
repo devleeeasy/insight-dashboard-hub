@@ -217,7 +217,13 @@ streamlit run dashboard/app.py
 # 8. (실시간 상권 유동인구 주제) dashboard_registry에 등록
 python -m src.collectors.foot_traffic.register_dashboard
 
-# 9. (실시간 상권 유동인구 주제) 수집기 1회 실행
+# 9. (실시간 상권 유동인구 주제) 수집 대상 장소 시드
+# data/seoul_realtime_areas.xlsx (서울시 API가 지원하는 전체 121개 장소 목록) →
+# foot_traffic_places 테이블. 기본은 광화문·덕수궁만 활성화, 나머지는
+# is_active 컬럼을 바꿔서 켜고 끈다 (API가 이 121개 외 장소는 지원하지 않음).
+python -m src.db.seeds.seed_foot_traffic_places
+
+# 10. (실시간 상권 유동인구 주제) 수집기 1회 실행
 python -m src.collectors.foot_traffic.collect
 ```
 

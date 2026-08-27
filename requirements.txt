@@ -1,5 +1,6 @@
 pandas>=2.0
 numpy>=1.24
+openpyxl>=3.1        # xlsx 읽기 (foot_traffic_places 시드)
 pyarrow>=14.0          # Parquet 읽기/쓰기
 boto3>=1.34            # S3 연동
 mysql-connector-python>=8.0
