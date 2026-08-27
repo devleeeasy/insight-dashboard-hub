@@ -5,7 +5,7 @@ dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
 4개 테이블을 생성한다. 이미 존재하면 건드리지 않는다(CREATE TABLE IF NOT EXISTS).
 
 실행:
-  python src/db/init_db.py
+  python -m src.db.init_db
 
 환경변수 (.env, .env.example 참고):
   MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
@@ -13,7 +13,7 @@ dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
 
 import logging
 
-from src.db.mysql_client import get_connection
+from src.db.mysql_client import ensure_database_exists, get_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,7 +46,13 @@ DDL_STATEMENTS = {
             display_order INT
                 COMMENT '사이드바 메뉴 노출 순서 (오름차순)',
             is_active BOOLEAN DEFAULT TRUE
-                COMMENT '비활성화 시 삭제 없이 메뉴에서만 숨김'
+                COMMENT '비활성화 시 삭제 없이 메뉴에서만 숨김',
+            data_freshness ENUM('static', 'realtime') NOT NULL DEFAULT 'static'
+                COMMENT '데이터 갱신 방식 - static(정적 배치) / realtime(주기적 실시간 수집)',
+            refresh_interval_minutes INT NULL
+                COMMENT 'realtime 대시보드의 수집 주기(분). static이면 NULL',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                COMMENT '등록 시각 (Asia/Seoul 기준 - 세션 타임존 +09:00 고정, DEFAULT로 자동 채움)'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
           COMMENT='등록된 대시보드(분석 주제) 메타데이터. 새 주제는 코드 수정 없이 이 테이블에 행을 추가해 등록한다.'
     """,
@@ -117,11 +123,44 @@ DDL_STATEMENTS = {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
           COMMENT='방송매체 이용행태조사 기반 TV/스마트폰 OTT 이용 지표 통합 집계 (이용경험/이용시간/시청빈도 3종을 tidy 포맷으로 통합)'
     """,
+    "foot_traffic_timeseries": """
+        CREATE TABLE IF NOT EXISTS foot_traffic_timeseries (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY
+                COMMENT '내부 관리용 자동증가 PK',
+            place_id VARCHAR(20) NOT NULL
+                COMMENT '장소 코드 (서울시 실시간 도시데이터 API AREA_CD, 예: POI009)',
+            place_name VARCHAR(50) NOT NULL
+                COMMENT '장소명 (API AREA_NM, 예: 광화문·덕수궁)',
+            snapshot_time DATETIME NOT NULL
+                COMMENT '데이터 기준 시각 (API PPLTN_TIME 파싱, Asia/Seoul 벽시계 값)',
+            congestion_level VARCHAR(10) NULL
+                COMMENT '실시간 인구 혼잡도 (여유/보통/약간 붐빔/붐빔) - API AREA_CONGEST_LVL',
+            population_min INT NULL
+                COMMENT '실시간 추정 인구 최소값 - API AREA_PPLTN_MIN',
+            population_max INT NULL
+                COMMENT '실시간 추정 인구 최대값 - API AREA_PPLTN_MAX',
+            temperature DECIMAL(4, 1) NULL
+                COMMENT '기온(℃) - API WEATHER_STTS.TEMP',
+            precipitation DECIMAL(5, 1) NULL
+                COMMENT '강수량(mm) - API WEATHER_STTS.PRECIPITATION',
+            subway_ridership INT NULL
+                COMMENT '인근 지하철역 승하차 인원 합계 - 정확한 원본 필드는 SUBWAY_STTS 실응답 확인 후 수집 스크립트 단계에서 확정 (잠정)',
+            bike_available_count INT NULL
+                COMMENT '인근 따릉이 대여 가능 대수 합계 - API SBIKE_STTS 관련 (잠정)',
+            raw_response_s3_key VARCHAR(255) NULL
+                COMMENT '원본 응답이 저장된 S3 키 (raw 레이어, 감사/재현용)',
+            created_at DATETIME NOT NULL
+                COMMENT '적재 시각 (Asia/Seoul 기준)',
+            UNIQUE KEY uq_foot_traffic (place_id, snapshot_time)
+                COMMENT '동일 장소x시각 중복 적재 방지 (멱등성) - 수집 재시도/재실행 시 upsert 키'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+          COMMENT='서울시 실시간 도시데이터 API 기반 상권 유동인구/날씨/지하철/따릉이 시계열 스냅샷 (실시간 주제, 주기적 폴링으로 적재)'
+    """,
 }
 
 
 def create_tables(conn) -> None:
-    """4개 테이블을 순서대로 생성 (이미 있으면 건너뜀)."""
+    """DDL_STATEMENTS에 정의된 테이블을 순서대로 생성 (이미 있으면 건너뜀)."""
     cursor = conn.cursor()
     for table_name, ddl in DDL_STATEMENTS.items():
         logger.info("테이블 생성 확인: %s", table_name)
@@ -132,6 +171,7 @@ def create_tables(conn) -> None:
 
 def main() -> None:
     logger.info("=== MySQL 스키마 초기화 시작 ===")
+    ensure_database_exists()
     conn = get_connection()
     try:
         create_tables(conn)

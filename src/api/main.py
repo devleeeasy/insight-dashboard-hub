@@ -56,7 +56,8 @@ def list_dashboards() -> list[dict]:
     return fetch_all(
         """
         SELECT dashboard_id, title, description, chart_type, data_source_table,
-               x_axis_column, y_axis_column, segment_filter_enabled, display_order
+               x_axis_column, y_axis_column, segment_filter_enabled, display_order,
+               data_freshness, refresh_interval_minutes
         FROM dashboard_registry
         WHERE is_active = TRUE
         ORDER BY display_order ASC
