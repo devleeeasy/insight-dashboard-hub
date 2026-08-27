@@ -124,6 +124,12 @@ if df.empty:
 
 renderer = get_renderer(config["chart_type"])
 
+if hasattr(renderer, "render_full"):
+    # 위젯이 여러 개라 아래 "지표4개+차트1개" 고정틀에 안 맞는 렌더러
+    # (realtime_monitor 등) - 렌더러가 이 섹션 전체를 직접 그린다.
+    renderer.render_full(df, config)
+    st.stop()
+
 # ── 핵심 지표 카드 ───────────────────────────────────────────────────
 cards = renderer.metrics(df, config)[:4]
 for col, card in zip(st.columns(len(cards)), cards):

@@ -68,12 +68,16 @@ def _safe_filename(place_name: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]+", "_", place_name)
 
 
+# API가 값 없음을 빈 문자열 대신 "-"로 표기하는 경우가 실응답(WEATHER_STTS.PRECIPITATION 등)에서 확인됨
+_EMPTY_VALUES = (None, "", "-")
+
+
 def _to_int(value: str | None) -> int | None:
-    return int(value) if value not in (None, "") else None
+    return int(value) if value not in _EMPTY_VALUES else None
 
 
 def _to_float(value: str | None) -> float | None:
-    return float(value) if value not in (None, "") else None
+    return float(value) if value not in _EMPTY_VALUES else None
 
 
 def fetch_place_xml(place_name: str) -> bytes:
@@ -134,6 +138,19 @@ def parse_citydata_xml(raw_xml: bytes, raw_key: str) -> dict:
         else now_kst()
     )
 
+    # FCST_PPLTN은 시간대별 예측치 배열 - 실응답 기준 <FCST_PPLTN><FCST_PPLTN>...(여러 개)
+    # </FCST_PPLTN></FCST_PPLTN> 형태. 가장 가까운(1시간 후) 첫 번째 항목만 사용.
+    fcst_outer = ppltn.find("FCST_PPLTN") if ppltn is not None else None
+    fcst_items = fcst_outer.findall("FCST_PPLTN") if fcst_outer is not None else []
+    fcst = fcst_items[0] if fcst_items else None
+    fcst_time_str = fcst.findtext("FCST_TIME") if fcst is not None else None
+    fcst_time = (
+        datetime.strptime(fcst_time_str, "%Y-%m-%d %H:%M") if fcst_time_str else None
+    )
+
+    def _rate(tag: str) -> float | None:
+        return _to_float(ppltn.findtext(tag)) if ppltn is not None else None
+
     return {
         "place_id": citydata.findtext("AREA_CD"),
         "place_name": citydata.findtext("AREA_NM"),
@@ -146,6 +163,22 @@ def parse_citydata_xml(raw_xml: bytes, raw_key: str) -> dict:
         # TODO: 실제 SUBWAY_STTS / SBIKE_STTS 응답 구조 확인 후 구현
         "subway_ridership": None,
         "bike_available_count": None,
+        "male_population_rate": _rate("MALE_PPLTN_RATE"),
+        "female_population_rate": _rate("FEMALE_PPLTN_RATE"),
+        "age_rate_0s": _rate("PPLTN_RATE_0"),
+        "age_rate_10s": _rate("PPLTN_RATE_10"),
+        "age_rate_20s": _rate("PPLTN_RATE_20"),
+        "age_rate_30s": _rate("PPLTN_RATE_30"),
+        "age_rate_40s": _rate("PPLTN_RATE_40"),
+        "age_rate_50s": _rate("PPLTN_RATE_50"),
+        "age_rate_60s": _rate("PPLTN_RATE_60"),
+        "age_rate_70s": _rate("PPLTN_RATE_70"),
+        "resident_population_rate": _rate("RESNT_PPLTN_RATE"),
+        "non_resident_population_rate": _rate("NON_RESNT_PPLTN_RATE"),
+        "forecast_time": fcst_time,
+        "forecast_congestion_level": fcst.findtext("FCST_CONGEST_LVL") if fcst is not None else None,
+        "forecast_population_min": _to_int(fcst.findtext("FCST_PPLTN_MIN")) if fcst is not None else None,
+        "forecast_population_max": _to_int(fcst.findtext("FCST_PPLTN_MAX")) if fcst is not None else None,
         "raw_response_s3_key": raw_key,
     }
 

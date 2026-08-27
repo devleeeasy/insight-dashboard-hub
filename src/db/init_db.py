@@ -34,7 +34,7 @@ DDL_STATEMENTS = {
                 COMMENT '대시보드 제목 - 사이드바 메뉴에 표시되는 이름',
             description VARCHAR(255)
                 COMMENT '대시보드 설명',
-            chart_type ENUM('correlation', 'comparison', 'trend', 'distribution')
+            chart_type ENUM('correlation', 'comparison', 'trend', 'distribution', 'realtime_monitor')
                 COMMENT '차트 유형 - 이 값에 대응하는 공용 렌더러가 화면을 그림',
             data_source_table VARCHAR(100) NOT NULL
                 COMMENT '조회 대상 데이터 테이블명 (예: household_spending_agg)',
@@ -148,6 +148,38 @@ DDL_STATEMENTS = {
                 COMMENT '인근 지하철역 승하차 인원 합계 - 정확한 원본 필드는 SUBWAY_STTS 실응답 확인 후 수집 스크립트 단계에서 확정 (잠정)',
             bike_available_count INT NULL
                 COMMENT '인근 따릉이 대여 가능 대수 합계 - API SBIKE_STTS 관련 (잠정)',
+            male_population_rate DECIMAL(5, 2) NULL
+                COMMENT '남성 인구 비율(%) - API MALE_PPLTN_RATE',
+            female_population_rate DECIMAL(5, 2) NULL
+                COMMENT '여성 인구 비율(%) - API FEMALE_PPLTN_RATE',
+            age_rate_0s DECIMAL(5, 2) NULL
+                COMMENT '0대 인구 비율(%) - API PPLTN_RATE_0',
+            age_rate_10s DECIMAL(5, 2) NULL
+                COMMENT '10대 인구 비율(%) - API PPLTN_RATE_10',
+            age_rate_20s DECIMAL(5, 2) NULL
+                COMMENT '20대 인구 비율(%) - API PPLTN_RATE_20',
+            age_rate_30s DECIMAL(5, 2) NULL
+                COMMENT '30대 인구 비율(%) - API PPLTN_RATE_30',
+            age_rate_40s DECIMAL(5, 2) NULL
+                COMMENT '40대 인구 비율(%) - API PPLTN_RATE_40',
+            age_rate_50s DECIMAL(5, 2) NULL
+                COMMENT '50대 인구 비율(%) - API PPLTN_RATE_50',
+            age_rate_60s DECIMAL(5, 2) NULL
+                COMMENT '60대 인구 비율(%) - API PPLTN_RATE_60',
+            age_rate_70s DECIMAL(5, 2) NULL
+                COMMENT '70세 이상 인구 비율(%) - API PPLTN_RATE_70',
+            resident_population_rate DECIMAL(5, 2) NULL
+                COMMENT '거주 인구 비율(%) - API RESNT_PPLTN_RATE',
+            non_resident_population_rate DECIMAL(5, 2) NULL
+                COMMENT '비거주 인구 비율(%) - API NON_RESNT_PPLTN_RATE',
+            forecast_time DATETIME NULL
+                COMMENT '예측 기준 시각 (1시간 후) - API FCST_PPLTN[0].FCST_TIME',
+            forecast_congestion_level VARCHAR(10) NULL
+                COMMENT '예측 혼잡도 - API FCST_PPLTN[0].FCST_CONGEST_LVL',
+            forecast_population_min INT NULL
+                COMMENT '예측 인구 최소값 - API FCST_PPLTN[0].FCST_PPLTN_MIN',
+            forecast_population_max INT NULL
+                COMMENT '예측 인구 최대값 - API FCST_PPLTN[0].FCST_PPLTN_MAX',
             raw_response_s3_key VARCHAR(255) NULL
                 COMMENT '원본 응답이 저장된 S3 키 (raw 레이어, 감사/재현용)',
             created_at DATETIME NOT NULL
