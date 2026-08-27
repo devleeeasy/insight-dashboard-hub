@@ -12,22 +12,16 @@ dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
 """
 
 import logging
-import os
 
-import mysql.connector
-from dotenv import load_dotenv
-
-load_dotenv()
+from src.db.mysql_client import get_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 데이터 시간은 무조건 Asia/Seoul 기준.
 # created_at 컬럼을 TIMESTAMP가 아닌 DATETIME으로 둬서 서버 타임존 설정에
-# 값이 좌우되지 않게 하고(값은 애플리케이션이 KST로 채움),
-# 혹시 SQL 쪽에서 NOW()/CURRENT_TIMESTAMP를 쓰는 경우까지 대비해
-# 세션 타임존 자체도 +09:00으로 고정한다.
-SESSION_TIMEZONE = "+09:00"
+# 값이 좌우되지 않게 했다 (값은 애플리케이션이 KST로 채움, mysql_client.now_kst 참고).
+# get_connection()이 세션 타임존도 +09:00으로 고정한다.
 
 
 DDL_STATEMENTS = {
@@ -124,22 +118,6 @@ DDL_STATEMENTS = {
           COMMENT='방송매체 이용행태조사 기반 TV/스마트폰 OTT 이용 지표 통합 집계 (이용경험/이용시간/시청빈도 3종을 tidy 포맷으로 통합)'
     """,
 }
-
-
-def get_connection():
-    """MySQL 커넥션 생성. 세션 타임존을 KST(+09:00)로 고정해서 반환."""
-    conn = mysql.connector.connect(
-        host=os.environ["MYSQL_HOST"],
-        port=int(os.environ.get("MYSQL_PORT", 3306)),
-        user=os.environ["MYSQL_USER"],
-        password=os.environ["MYSQL_PASSWORD"],
-        database=os.environ["MYSQL_DB"],
-        charset="utf8mb4",
-    )
-    cursor = conn.cursor()
-    cursor.execute("SET time_zone = %s", (SESSION_TIMEZONE,))
-    cursor.close()
-    return conn
 
 
 def create_tables(conn) -> None:
