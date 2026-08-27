@@ -58,9 +58,14 @@ with st.sidebar:
 
     st.markdown("<div style='font-size:11px;font-weight:700;letter-spacing:.8px;"
                 "color:#8A919B;margin-bottom:6px'>분석 주제</div>", unsafe_allow_html=True)
-    titles = {d["title"]: d for d in dashboards}
-    selected_title = st.radio("분석 주제", list(titles), label_visibility="collapsed")
-    meta = titles[selected_title]
+
+    def _radio_label(d: dict) -> str:
+        prefix = "🔴 " if d.get("data_freshness") == "realtime" else ""
+        return f"{prefix}{d['title']}"
+
+    meta = st.radio(
+        "분석 주제", dashboards, format_func=_radio_label, label_visibility="collapsed"
+    )
 
     st.markdown(
         f"<div class='card-shell' style='padding:14px 12px;margin-top:22px'>"
@@ -75,9 +80,17 @@ with st.sidebar:
 segment_filter = bool(meta.get("segment_filter_enabled", True))
 head, f1, f2, f3 = st.columns([6, 1.4, 1.3, 0.9], vertical_alignment="bottom")
 
+is_realtime = meta.get("data_freshness") == "realtime"
+realtime_badge = ""
+if is_realtime:
+    interval = meta.get("refresh_interval_minutes")
+    interval_note = f" · {interval}분마다 갱신" if interval else ""
+    realtime_badge = f"<span class='topic-badge' style='margin-left:6px'>🔴 실시간{interval_note}</span>"
+
 with head:
     st.markdown(
         f"<span class='topic-badge'>{CHART_TYPE_LABEL.get(meta['chart_type'], meta['chart_type'])}</span>"
+        f"{realtime_badge}"
         f"<span style='font-size:12px;color:#8A919B;margin-left:8px'>"
         f"{meta['data_source_table']}</span>"
         f"<div class='topic-title'>{meta['title']}</div>"
