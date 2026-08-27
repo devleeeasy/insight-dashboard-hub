@@ -7,6 +7,7 @@ dashboard_registry/agg 테이블을 조회할 때 공통으로 사용하는 저�
 
 import logging
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,35 @@ logger = logging.getLogger(__name__)
 # 데이터 시간은 무조건 Asia/Seoul 기준.
 SESSION_TIMEZONE = "+09:00"
 KST = ZoneInfo("Asia/Seoul")
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def ensure_database_exists() -> None:
+    """MYSQL_DB로 지정한 데이터베이스가 없으면 생성.
+
+    최초 셋업 시 DB 자체가 없으면 get_connection()이 바로 실패하므로,
+    init_db.py 실행 맨 앞에서 한 번 호출해 부트스트랩을 완결시킨다.
+    """
+    db_name = os.environ["MYSQL_DB"]
+    if not _IDENTIFIER_RE.match(db_name):
+        raise ValueError(f"잘못된 MYSQL_DB 식별자: {db_name}")
+
+    conn = mysql.connector.connect(
+        host=os.environ["MYSQL_HOST"],
+        port=int(os.environ.get("MYSQL_PORT", 3306)),
+        user=os.environ["MYSQL_USER"],
+        password=os.environ["MYSQL_PASSWORD"],
+        charset="utf8mb4",
+    )
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name} CHARACTER SET utf8mb4")
+        conn.commit()
+        cursor.close()
+        logger.info("데이터베이스 확인/생성 완료: %s", db_name)
+    finally:
+        conn.close()
 
 
 def get_connection():

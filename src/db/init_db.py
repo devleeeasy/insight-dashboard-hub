@@ -13,7 +13,7 @@ dashboard_registry, segment_dim, household_spending_agg, media_usage_agg
 
 import logging
 
-from src.db.mysql_client import get_connection
+from src.db.mysql_client import ensure_database_exists, get_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ DDL_STATEMENTS = {
 
 
 def create_tables(conn) -> None:
-    """4개 테이블을 순서대로 생성 (이미 있으면 건너뜀)."""
+    """DDL_STATEMENTS에 정의된 테이블을 순서대로 생성 (이미 있으면 건너뜀)."""
     cursor = conn.cursor()
     for table_name, ddl in DDL_STATEMENTS.items():
         logger.info("테이블 생성 확인: %s", table_name)
@@ -171,6 +171,7 @@ def create_tables(conn) -> None:
 
 def main() -> None:
     logger.info("=== MySQL 스키마 초기화 시작 ===")
+    ensure_database_exists()
     conn = get_connection()
     try:
         create_tables(conn)
