@@ -5,6 +5,8 @@ GET /dashboards               -> 등록된(is_active=TRUE) 대시보드 메타�
 GET /dashboards/{id}/data     -> 해당 대시보드의 data_source_table 데이터 (선택적 세그먼트 필터)
 GET /foot-traffic-places      -> 실시간 상권 유동인구 API가 지원하는 121개 장소 목록 + 활성화 여부
 PUT /foot-traffic-places/active -> 실시간 수집 대상 장소(is_active) 갱신
+GET /raw-uploads/{topic}      -> S3 raw 레이어에 있는 해당 topic의 원본 파일 목록
+POST /raw-uploads/{topic}     -> 원본 CSV/Excel 파일을 S3 raw 레이어에 업로드 (오늘 날짜 파티션에 추가)
 
 대시보드 허브(Streamlit)는 이 API를 통해서만 데이터를 가져오며, 새로운 주제가
 dashboard_registry에 추가되어도 이 파일은 수정할 필요가 없다. (foot-traffic-places 쪽은
@@ -17,11 +19,12 @@ dashboard_registry에 추가되어도 이 파일은 수정할 필요가 없다. 
 import logging
 import re
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.db.mysql_client import fetch_all, get_connection
+from src.storage.s3_client import list_raw_files, write_raw_bytes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +35,7 @@ app = FastAPI(title="Insight Dashboard Hub API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "PUT"],
+    allow_methods=["GET", "PUT", "POST"],
     allow_headers=["*"],
 )
 
@@ -41,6 +44,9 @@ app.add_middleware(
 SEGMENT_FILTER_COLUMNS = ("age_group", "gender", "region_type")
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# 업로드 파일명 - 한글/영문/숫자/공백/-_.() 조합에 csv 또는 xlsx 확장자만 허용.
+# 경로 구분자(/, \)가 빠져 있어 S3 키 조작(다른 topic 경로로 쓰기)을 막는다.
+_RAW_FILENAME_RE = re.compile(r"^[\w\-.() ]+\.(csv|xlsx)$", re.IGNORECASE)
 
 
 def _validate_identifier(name: str) -> str:
@@ -52,6 +58,25 @@ def _validate_identifier(name: str) -> str:
     if not _IDENTIFIER_RE.match(name):
         raise HTTPException(status_code=500, detail=f"잘못된 테이블 식별자: {name}")
     return name
+
+
+def _validate_topic(topic: str) -> str:
+    """S3 raw 경로의 topic 세그먼트 검증.
+
+    src/preprocessing/<topic>/ 또는 src/collectors/<topic>/ 폴더명과 동일한 snake_case
+    규칙(README S3 업로드 경로 규칙 참고)을 그대로 적용해, 대시보드 업로드 UI에서 들어온
+    임의 문자열이 S3 키 경로를 조작하지 못하게 막는다.
+    """
+    if not _IDENTIFIER_RE.match(topic):
+        raise HTTPException(status_code=400, detail=f"잘못된 topic 형식: {topic}")
+    return topic
+
+
+def _validate_raw_filename(filename: str) -> str:
+    """업로드 파일명 검증 - 경로 구분자/상위 디렉터리 이동을 막고 csv/xlsx만 허용."""
+    if not _RAW_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail=f"잘못된 파일명입니다 (csv/xlsx만 허용): {filename}")
+    return filename
 
 
 @app.get("/dashboards")
@@ -150,3 +175,24 @@ def set_active_foot_traffic_places(payload: ActivePlacesPayload) -> dict:
     finally:
         conn.close()
     return {"active_count": len(payload.area_names)}
+
+
+@app.get("/raw-uploads/{topic}")
+def list_raw_uploads(topic: str) -> list[str]:
+    """S3 raw 레이어의 해당 topic 파일 목록("<날짜>/<파일명>") - 업로드 UI가 기존 이력을 보여줄 때 사용."""
+    return list_raw_files(_validate_topic(topic))
+
+
+@app.post("/raw-uploads/{topic}")
+async def create_raw_upload(topic: str, file: UploadFile) -> dict:
+    """원본 CSV/Excel 파일을 S3 raw 레이어의 오늘 날짜 파티션에 저장한다.
+
+    같은 파일명으로 다시 올려도 예전 버전을 덮어쓰지 않고 새 날짜 폴더에 그대로 남는다
+    (day-partitioned append-only, README "S3 raw 경로 규칙" 참고). 전처리 파이프라인은
+    항상 최신 파티션을 읽는다(s3_client.read_csv).
+    """
+    topic = _validate_topic(topic)
+    filename = _validate_raw_filename(file.filename or "")
+    data = await file.read()
+    key = write_raw_bytes(topic, filename, data)
+    return {"key": key, "size": len(data)}

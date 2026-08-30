@@ -18,8 +18,8 @@ from typing import Callable
 
 import pandas as pd
 
-from src.storage.s3_client import read_csv, write_parquet
 from src.db.mysql_client import bulk_upsert
+from src.storage.s3_client import read_csv, write_parquet
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

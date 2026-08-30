@@ -1,12 +1,14 @@
 """FastAPI 서빙 계층(src/api/main.py) 호출 클라이언트.
 
-대시보드 허브는 MySQL 을 직접 조회하지 않고 이 모듈만 사용한다.
+대시보드 허브는 MySQL/S3를 직접 조회하지 않고 이 모듈만 사용한다.
 API 스펙:
   GET /dashboards               -> 대시보드 메타데이터 목록
   GET /dashboards/{id}/data     -> {"config": {...}, "data": [...]}
                                    쿼리: age_group / gender / region_type
   GET /foot-traffic-places      -> 실시간 상권 유동인구 121개 장소 목록 + 활성화 여부
   PUT /foot-traffic-places/active -> 실시간 수집 대상 장소 갱신
+  GET /raw-uploads/{topic}      -> S3 raw 레이어의 원본 파일 목록
+  POST /raw-uploads/{topic}     -> 원본 CSV/Excel 파일 업로드
 """
 
 import json
@@ -14,6 +16,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 import pandas as pd
 import streamlit as st
@@ -102,3 +105,37 @@ def list_foot_traffic_places() -> list[dict]:
 def set_active_foot_traffic_places(area_names: list[str]) -> None:
     """실시간 수집 대상 장소를 area_names 로 통째로 교체."""
     _put("/foot-traffic-places/active", {"area_names": area_names})
+
+
+def list_raw_uploads(topic: str) -> list[str]:
+    """S3 raw 레이어에 이미 올라가 있는 topic의 파일 목록("<날짜>/<파일명>") - 업로드 전 이력 확인용."""
+    return _get(f"/raw-uploads/{topic}")
+
+
+def upload_raw_file(topic: str, filename: str, data: bytes) -> dict:
+    """원본 CSV/Excel 파일을 topic의 S3 raw 레이어에 업로드 (multipart/form-data POST).
+
+    urllib에는 requests의 files= 같은 멀티파트 헬퍼가 없어서 body를 직접 조립한다.
+    FastAPI의 UploadFile 파라미터명이 "file"이라 필드명을 그것과 맞춰야 한다.
+    """
+    boundary = uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n"
+    ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    request = urllib.request.Request(
+        f"{API_BASE_URL}/raw-uploads/{topic}",
+        data=body,
+        method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise ApiError(f"업로드 실패 {exc.code}: {detail}") from exc
+    except Exception as exc:
+        raise ApiError(f"API 서버에 연결할 수 없습니다 ({API_BASE_URL})") from exc
