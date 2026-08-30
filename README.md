@@ -126,10 +126,18 @@ render_chart(config["chart_type"], data)       # chart_type별 공용 렌더러 
 
 ### 새 대시보드(주제) 등록하기
 
-1. 새 주제의 원본 CSV를 `s3://<bucket>/insight-dashboard-hub/raw/<topic>/`에 업로드
+1. 새 주제의 원본 CSV/Excel을 `s3://<bucket>/insight-dashboard-hub/raw/<topic>/`에 업로드 — 대시보드 허브의 "원본 데이터 업로드" 페이지(`dashboard/pages/`, `POST /raw-uploads/{topic}` 경유)를 쓰거나, `src/storage/s3_client.write_raw_bytes()`를 직접 호출
 2. `src/preprocessing/<topic>/`에 전처리 스크립트 추가 — S3 원본을 읽어 정제 후, 결과를 S3 processed에 Parquet로 저장하고 MySQL `<topic>_agg` 테이블에 적재
 3. `dashboard_registry`에 새 행 추가 (제목, 차트 타입, 데이터 소스 테이블, 축 컬럼 등)
 4. 별도의 프론트엔드 코드 수정 없이 허브 실행 시 새 주제가 사이드바 메뉴에 자동으로 노출됨
+
+### S3 raw 경로 규칙
+
+- 경로 형식은 항상 `raw/<topic>/<업로드 날짜 YYYYMMDD>/<파일명>` (예: `raw/ott_spending/20260830/2024_연간자료_지출_전체가구.csv`) — **day-partitioned append-only**입니다. 같은 파일명을 나중에 다시 올려도 예전 버전을 덮어쓰지 않고 새 날짜 폴더에 그대로 남습니다 (`src/storage/s3_client.write_raw_bytes`가 오늘 날짜를 자동으로 붙임).
+- **topic**은 `src/preprocessing/<topic>/` 또는 `src/collectors/<topic>/` 폴더명과 동일한 snake_case 식별자를 씁니다 (예: `ott_spending`, `foot_traffic`). 새 주제를 추가할 때 이 폴더명부터 정하고 그대로 topic으로 사용하세요.
+- **파일명은 원본 그대로 유지**합니다 (번역/축약 금지) — 나중에 원본 출처를 그대로 추적할 수 있어야 하기 때문입니다. 실시간 수집기는 `<장소명>_<YYYYMMDD_HHMMSS>.xml`처럼 파일명에도 자체 타임스탬프를 붙여, 하루 폴더 안에서도 각 수집 시점을 구분합니다 (`src/collectors/foot_traffic/collect.py` 참고).
+- **읽는 쪽은 항상 최신 파티션을 봅니다** — `s3_client.read_csv(topic, filename)`이 내부적으로 해당 topic의 날짜 폴더들을 모두 뒤져 `filename`과 일치하는 가장 최근 것을 읽어오므로(`_latest_raw_key`), `run_pipeline.py` 같은 전처리 스크립트는 날짜를 몰라도 됩니다. 이력 전체를 보려면 `list_raw_files(topic)`(업로드 페이지의 "기존 업로드 이력 보기")를 씁니다.
+- 이 규칙 덕분에 정적 원본(CSV/Excel)을 실수로 잘못 올려도, 다음 날(혹은 같은 날 다시) 정정본을 올리면 예전 파일이 사라지지 않고 함께 남습니다.
 
 ### 원본 데이터 관리 원칙
 
