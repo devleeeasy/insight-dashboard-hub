@@ -29,6 +29,14 @@ inject_css()
 AGE_GROUPS = ["전체", "10대", "20대", "30대", "40대", "50대", "60대", "70세 이상"]
 REGION_TYPES = ["전체", "도시", "비도시"]
 
+# 사이드바 메뉴를 data_freshness 기준으로 2뎁스(구분 -> 주제)로 나눈다.
+GROUP_ORDER = ["realtime", "static"]
+GROUP_LABELS = {"realtime": "🔴 실시간 분석", "static": "🗂 정적 데이터 분석"}
+
+
+def _group_key(d: dict) -> str:
+    return "realtime" if d.get("data_freshness") == "realtime" else "static"
+
 
 def _reset_filters() -> None:
     st.session_state.update(age_group="전체", region_type="전체")
@@ -56,16 +64,40 @@ with st.sidebar:
         st.warning("등록된 대시보드가 없습니다. dashboard_registry 에 행을 추가하세요.")
         st.stop()
 
-    st.markdown("<div style='font-size:11px;font-weight:700;letter-spacing:.8px;"
-                "color:#8A919B;margin-bottom:6px'>분석 주제</div>", unsafe_allow_html=True)
+    groups: dict[str, list[dict]] = {key: [] for key in GROUP_ORDER}
+    for d in dashboards:
+        groups[_group_key(d)].append(d)
 
-    def _radio_label(d: dict) -> str:
-        prefix = "🔴 " if d.get("data_freshness") == "realtime" else ""
-        return f"{prefix}{d['title']}"
+    if "selected_dashboard_id" not in st.session_state:
+        st.session_state.selected_dashboard_id = dashboards[0]["dashboard_id"]
 
-    meta = st.radio(
-        "분석 주제", dashboards, format_func=_radio_label, label_visibility="collapsed"
-    )
+    def _pick(group_key: str, other_keys: list[str]) -> None:
+        chosen = st.session_state[f"nav_{group_key}"]
+        st.session_state.selected_dashboard_id = chosen["dashboard_id"]
+        for other in other_keys:
+            st.session_state[f"nav_{other}"] = None
+
+    for group_key in GROUP_ORDER:
+        items = groups[group_key]
+        if not items:
+            continue
+        st.markdown(
+            f"<div style='font-size:11px;font-weight:700;letter-spacing:.8px;"
+            f"color:#8A919B;margin:14px 0 6px'>{GROUP_LABELS[group_key]}</div>",
+            unsafe_allow_html=True,
+        )
+        current_index = next(
+            (i for i, d in enumerate(items) if d["dashboard_id"] == st.session_state.selected_dashboard_id),
+            None,
+        )
+        other_keys = [g for g in GROUP_ORDER if g != group_key and groups[g]]
+        st.radio(
+            GROUP_LABELS[group_key], items, format_func=lambda d: d["title"], index=current_index,
+            label_visibility="collapsed", key=f"nav_{group_key}",
+            on_change=_pick, args=(group_key, other_keys),
+        )
+
+    meta = next(d for d in dashboards if d["dashboard_id"] == st.session_state.selected_dashboard_id)
 
     st.markdown(
         f"<div class='card-shell' style='padding:14px 12px;margin-top:22px'>"
@@ -77,8 +109,17 @@ with st.sidebar:
     )
 
 # ── 헤더 + 필터 ──────────────────────────────────────────────────────
+# 연령대/지역구분/초기화는 segment_filter_enabled인 주제(연령대·지역 세그먼트가 있는
+# 정적 데이터)에만 의미가 있다. 없는 주제(예: 실시간 상권 유동인구)에서는 비활성화만
+# 하지 않고 아예 렌더링하지 않는다 - 죽은 컨트롤이 계속 떠 있으면 그 주제 전용 컨트롤
+# (예: realtime_monitor의 모니터링 장소 선택)과 헷갈린다.
 segment_filter = bool(meta.get("segment_filter_enabled", True))
-head, f1, f2, f3 = st.columns([6, 1.4, 1.3, 0.9], vertical_alignment="bottom")
+age, region = "전체", "전체"
+
+if segment_filter:
+    head, f1, f2, f3 = st.columns([6, 1.4, 1.3, 0.9], vertical_alignment="bottom")
+else:
+    (head,) = st.columns([1])
 
 is_realtime = meta.get("data_freshness") == "realtime"
 realtime_badge = ""
@@ -97,13 +138,13 @@ with head:
         f"<div class='topic-sub'>{meta.get('description') or ''}</div>",
         unsafe_allow_html=True,
     )
-with f1:
-    age = st.selectbox("연령대", AGE_GROUPS, key="age_group", disabled=not segment_filter)
-with f2:
-    region = st.selectbox("지역 구분", REGION_TYPES, key="region_type", disabled=not segment_filter)
-with f3:
-    st.button("초기화", use_container_width=True, on_click=_reset_filters,
-              disabled=not segment_filter)
+if segment_filter:
+    with f1:
+        age = st.selectbox("연령대", AGE_GROUPS, key="age_group")
+    with f2:
+        region = st.selectbox("지역 구분", REGION_TYPES, key="region_type")
+    with f3:
+        st.button("초기화", use_container_width=True, on_click=_reset_filters)
 
 st.write("")
 
@@ -118,16 +159,18 @@ except ApiError as exc:
     st.error(str(exc))
     st.stop()
 
-if df.empty:
-    st.info("선택한 필터 조건에 해당하는 데이터가 없습니다. 필터를 초기화해 보세요.")
-    st.stop()
-
 renderer = get_renderer(config["chart_type"])
 
 if hasattr(renderer, "render_full"):
     # 위젯이 여러 개라 아래 "지표4개+차트1개" 고정틀에 안 맞는 렌더러
-    # (realtime_monitor 등) - 렌더러가 이 섹션 전체를 직접 그린다.
+    # (realtime_monitor 등) - 렌더러가 이 섹션 전체를 직접 그린다. df가 비어 있어도
+    # (예: 활성 장소가 없거나 아직 수집 전) 렌더러가 자체적으로 처리하게 두고, 여기서
+    # st.stop() 하지 않는다 - 장소 선택 같은 위젯은 데이터가 없어도 봐야 하기 때문.
     renderer.render_full(df, config)
+    st.stop()
+
+if df.empty:
+    st.info("선택한 필터 조건에 해당하는 데이터가 없습니다. 필터를 초기화해 보세요.")
     st.stop()
 
 # ── 핵심 지표 카드 ───────────────────────────────────────────────────

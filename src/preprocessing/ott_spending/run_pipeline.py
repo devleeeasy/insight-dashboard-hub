@@ -14,6 +14,7 @@ OTT 이용 행태 x 소비 지출 분석 - 전처리 파이프라인
 """
 
 import logging
+from typing import Callable
 
 import pandas as pd
 
@@ -28,13 +29,25 @@ TOPIC = "ott_spending"
 AGE_BINS = [0, 19, 29, 39, 49, 59, 69, 200]
 AGE_LABELS = ["10대", "20대", "30대", "40대", "50대", "60대", "70세 이상"]
 
+# 대시보드용 카테고리 표시명 - 원본 컬럼명(가계지출_소비지출_ 접두사 제거)을 축약해서 차트 라벨로 쓴다.
+CATEGORY_LABELS = {
+    "식료품비주류음료구입비": "식료품·주류음료",
+    "오락문화비": "오락·문화",
+    "정보통신비": "정보통신",
+    "음식숙박비": "음식·숙박",
+}
 
-def load_household_survey(years: list[int]) -> pd.DataFrame:
-    """가계동향조사 연도별 CSV를 S3에서 읽어 하나로 병합."""
+
+def load_household_survey(years: list[int], load_file: Callable[[str], pd.DataFrame]) -> pd.DataFrame:
+    """가계동향조사 연도별 CSV를 병합.
+
+    load_file(filename) -> DataFrame 로 원본 조달 방식을 주입받는다
+    (S3 운영 경로는 run(), 로컬 프리뷰는 preview_local.py 참고).
+    """
     frames = []
     for year in years:
         filename = f"{year}_연간자료_지출_전체가구.csv"
-        df = read_csv(TOPIC, filename, low_memory=False)
+        df = load_file(filename)
         df["조사연도"] = year
         frames.append(df)
     merged = pd.concat(frames, ignore_index=True)
@@ -60,14 +73,13 @@ def weighted_mean(df: pd.DataFrame, value_col: str, weight_col: str = "가중값
     def _wavg(g: pd.DataFrame) -> float:
         return (g[value_col] * g[weight_col]).sum() / g[weight_col].sum()
 
-    return df.groupby(["조사연도", "연령대"]).apply(_wavg, include_groups=False)
+    return df.groupby(["조사연도", "연령대"], observed=True).apply(_wavg, include_groups=False)
 
 
 def build_household_spending_agg(raw: pd.DataFrame) -> pd.DataFrame:
     """연령대 x 연도 기준 소비지출 카테고리별 가중평균 집계 테이블 생성."""
     df = bucket_age(raw)
 
-    spending_cols = [c for c in df.columns if c.startswith("가계지출_소비지출_") and "_" in c[9:]]
     top_level_cols = [
         "가계지출_소비지출_식료품비주류음료구입비",
         "가계지출_소비지출_오락문화비",
@@ -78,7 +90,7 @@ def build_household_spending_agg(raw: pd.DataFrame) -> pd.DataFrame:
     records = []
     for col in top_level_cols:
         agg = weighted_mean(df, col).reset_index(name="avg_amount")
-        agg["category"] = col.replace("가계지출_소비지출_", "")
+        agg["category"] = CATEGORY_LABELS[col.replace("가계지출_소비지출_", "")]
         records.append(agg)
 
     result = pd.concat(records, ignore_index=True)
@@ -89,7 +101,9 @@ def build_household_spending_agg(raw: pd.DataFrame) -> pd.DataFrame:
 def run():
     logger.info("=== OTT-소비 분석 파이프라인 시작 ===")
 
-    raw = load_household_survey(years=[2024, 2025])
+    raw = load_household_survey(
+        years=[2024, 2025], load_file=lambda filename: read_csv(TOPIC, filename, low_memory=False)
+    )
     agg = build_household_spending_agg(raw)
 
     # 1) S3 processed 레이어에 보관 (재현성/감사 목적)

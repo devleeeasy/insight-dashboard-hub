@@ -3,9 +3,12 @@ FastAPI 서빙 계층
 
 GET /dashboards               -> 등록된(is_active=TRUE) 대시보드 메타데이터 목록
 GET /dashboards/{id}/data     -> 해당 대시보드의 data_source_table 데이터 (선택적 세그먼트 필터)
+GET /foot-traffic-places      -> 실시간 상권 유동인구 API가 지원하는 121개 장소 목록 + 활성화 여부
+PUT /foot-traffic-places/active -> 실시간 수집 대상 장소(is_active) 갱신
 
 대시보드 허브(Streamlit)는 이 API를 통해서만 데이터를 가져오며, 새로운 주제가
-dashboard_registry에 추가되어도 이 파일은 수정할 필요가 없다.
+dashboard_registry에 추가되어도 이 파일은 수정할 필요가 없다. (foot-traffic-places 쪽은
+실시간 상권 유동인구 주제 전용이라 이 규칙의 예외.)
 
 실행:
   uvicorn src.api.main:app --reload
@@ -16,8 +19,9 @@ import re
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-from src.db.mysql_client import fetch_all
+from src.db.mysql_client import fetch_all, get_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,7 +32,7 @@ app = FastAPI(title="Insight Dashboard Hub API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "PUT"],
     allow_headers=["*"],
 )
 
@@ -104,3 +108,45 @@ def get_dashboard_data(
         raise HTTPException(status_code=400, detail="데이터 조회 중 오류가 발생했습니다") from exc
 
     return {"config": config, "data": data}
+
+
+class ActivePlacesPayload(BaseModel):
+    """PUT /foot-traffic-places/active 요청 바디 - 활성화할 장소명 전체 목록."""
+
+    area_names: list[str]
+
+
+@app.get("/foot-traffic-places")
+def list_foot_traffic_places() -> list[dict]:
+    """서울시 실시간 도시데이터 API가 지원하는 121개 고정 장소 목록과 활성화 여부."""
+    return fetch_all(
+        "SELECT area_cd, area_name, category, is_active FROM foot_traffic_places ORDER BY area_name"
+    )
+
+
+@app.put("/foot-traffic-places/active")
+def set_active_foot_traffic_places(payload: ActivePlacesPayload) -> dict:
+    """실시간 수집 대상 장소를 payload.area_names로 통째로 교체한다.
+
+    foot_traffic_places는 121개 고정 행이라 UPDATE 두 번(전체 OFF -> 선택 항목만 ON)으로
+    충분하고, bulk_upsert(delete-then-insert)를 쓸 이유가 없다 (행 자체는 그대로 유지).
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE foot_traffic_places SET is_active = FALSE")
+        if payload.area_names:
+            placeholders = ", ".join(["%s"] * len(payload.area_names))
+            cursor.execute(
+                f"UPDATE foot_traffic_places SET is_active = TRUE WHERE area_name IN ({placeholders})",
+                tuple(payload.area_names),
+            )
+        conn.commit()
+        cursor.close()
+    except Exception as exc:
+        conn.rollback()
+        logger.exception("장소 활성화 갱신 실패")
+        raise HTTPException(status_code=400, detail="장소 활성화 갱신 중 오류가 발생했습니다") from exc
+    finally:
+        conn.close()
+    return {"active_count": len(payload.area_names)}

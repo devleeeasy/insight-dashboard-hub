@@ -121,7 +121,49 @@ def _top5_table(latest: pd.DataFrame) -> pd.DataFrame:
     })
 
 
+def _place_selector() -> None:
+    """모니터링 장소(is_active) 선택 UI - 121개 고정 목록 중 검색해서 다중 선택.
+
+    dashboard.api_client 를 여기서 지연 임포트하는 게 아니라 최상단에서 바로 임포트해도
+    되지만(순환 임포트 없음), 이 렌더러 안에서만 쓰는 topic 전용 의존성이라 함수 스코프에 둔다.
+    """
+    from ..api_client import ApiError, list_foot_traffic_places, set_active_foot_traffic_places
+
+    try:
+        places = list_foot_traffic_places()
+    except ApiError as exc:
+        st.warning(f"장소 목록을 불러오지 못했습니다: {exc}")
+        return
+
+    options = [p["area_name"] for p in places]
+    active = [p["area_name"] for p in places if p["is_active"]]
+
+    with st.expander(f"모니터링 장소 관리 ({len(active)}/{len(options)}곳 선택됨)"):
+        selected = st.multiselect(
+            "장소 검색 (서울시 실시간 도시데이터 API가 지원하는 121개 장소 중 선택)",
+            options=options, default=active, key="foot_traffic_active_places",
+        )
+        if st.button("적용", key="apply_foot_traffic_places"):
+            try:
+                set_active_foot_traffic_places(selected)
+            except ApiError as exc:
+                st.error(f"저장 실패: {exc}")
+            else:
+                list_foot_traffic_places.clear()
+                if not selected:
+                    st.warning("선택된 장소가 없어 다음 수집부터 데이터가 쌓이지 않습니다.")
+                else:
+                    st.success("적용됐습니다. 새로 켠 장소는 다음 수집 주기부터 데이터가 쌓입니다.")
+                st.rerun()
+
+
 def render_full(df: pd.DataFrame, config: dict) -> None:
+    _place_selector()
+
+    if df.empty:
+        st.info("아직 수집된 데이터가 없습니다. 장소를 켠 뒤 다음 수집 주기를 기다려 주세요.")
+        return
+
     latest = _latest_by_place(df)
 
     _metric_cards(df, latest)
