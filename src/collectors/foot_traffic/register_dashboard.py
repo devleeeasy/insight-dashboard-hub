@@ -29,7 +29,7 @@ DASHBOARD_ROW = {
     "display_order": 4,
     "is_active": True,
     "data_freshness": "realtime",
-    "refresh_interval_minutes": 5,
+    "refresh_interval_minutes": 30,
 }
 
 
