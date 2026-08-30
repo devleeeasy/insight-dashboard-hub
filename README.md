@@ -244,17 +244,33 @@ python -m src.collectors.foot_traffic.collect
 프로세스가 새로 뜨고 끝나 상태를 안 가지므로 장시간 실행에 따른 메모리 누수/드리프트
 걱정이 없고, 별도 상시 프로세스(데몬)를 추가로 운영/관리할 필요가 없다.
 
-리눅스 서버에 배포하는 경우 (예: 5분 주기):
+실제 등록된 주기는 30분이다 (`dashboard_registry.refresh_interval_minutes`와 일치) —
+5분 주기로 XML 원본을 계속 쌓으면 한 달에 장소 1곳 기준 약 3GB씩 늘어나 S3 프리티어를
+금방 넘기기 때문에, 호출 빈도를 줄이고 원본은 30일 지나면 자동 삭제하는 S3 Lifecycle
+규칙(`raw/foot_traffic/*`, `Expiration.Days=30`)을 같이 적용했다. 파싱된 값은
+`foot_traffic_timeseries`에 영구 보관되므로 원본 삭제와 무관하게 이력이 남는다.
+
+리눅스 서버에 배포하는 경우 (예: 30분 주기):
 
 ```bash
-*/5 * * * * cd /path/to/insight-dashboard-hub && /path/to/venv/bin/python -m src.collectors.foot_traffic.collect >> logs/foot_traffic.log 2>&1
+*/30 * * * * cd /path/to/insight-dashboard-hub && /path/to/venv/bin/python -m src.collectors.foot_traffic.collect >> logs/foot_traffic.log 2>&1
 ```
 
-로컬 Windows 개발 환경에서는 cron이 없으므로 대신 Task Scheduler(`schtasks`)를 사용한다:
+로컬 Windows 개발 환경에서는 cron이 없으므로 Task Scheduler(`schtasks`)를 쓴다. `/TR`에
+`python -m ...`을 직접 넣으면 스케줄러의 기본 실행 위치가 프로젝트 폴더가 아니라서
+모듈 임포트와 `.env` 로딩이 실패하므로, 먼저 `cd`한 뒤 실행하는 래퍼 배치를 하나 두고
+그걸 등록한다 (`scripts/foot_traffic_collector.bat` 참고):
+
+```bat
+@echo off
+cd /d "%~dp0.."
+if not exist logs mkdir logs
+"<python.exe 경로>" -m src.collectors.foot_traffic.collect >> logs\foot_traffic.log 2>&1
+```
 
 ```powershell
-schtasks /Create /SC MINUTE /MO 5 /TN "FootTrafficCollector" ^
-  /TR "python -m src.collectors.foot_traffic.collect" /ST 00:00
+schtasks /Create /SC MINUTE /MO 30 /TN "FootTrafficCollector" ^
+  /TR "<프로젝트 경로>\scripts\foot_traffic_collector.bat" /ST 00:00
 ```
 
 AWS에 배포한다면 EventBridge Scheduler + Lambda(또는 ECS Task) 조합으로 완전관리형
