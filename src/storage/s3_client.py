@@ -19,6 +19,9 @@ from functools import lru_cache
 import boto3
 import pandas as pd
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
