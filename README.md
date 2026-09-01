@@ -1,6 +1,6 @@
-# insight-dashboard-hub
+# insight-dashboard-hub · INSIGHT HUB
 
-Metadata-driven dashboard hub for exploring segment-level insights across multiple public datasets (MySQL, Pandas, FastAPI)
+Metadata-driven dashboard hub for exploring segment-level insights across multiple public datasets (MySQL, Pandas, FastAPI). 대시보드 허브 화면 자체는 **"INSIGHT HUB"** 라는 이름으로 브랜딩되어 있습니다.
 
 ---
 
@@ -84,13 +84,19 @@ Metadata-driven dashboard hub for exploring segment-level insights across multip
         │
         ▼
 [서빙 계층 - FastAPI]
-  GET /dashboards                  → 등록된 대시보드 목록(메타데이터) 반환
-  GET /dashboards/{id}/data        → 선택한 대시보드가 필요로 하는 데이터 반환
+  GET  /dashboards                        → 등록된 대시보드 목록(메타데이터) 반환
+  GET  /dashboards/{id}/data              → 선택한 대시보드가 필요로 하는 데이터 반환
+  GET  /foot-traffic-places               → 실시간 수집 대상 장소 목록
+  POST /foot-traffic-places/active        → 수집 대상 장소 활성/비활성 변경
+  GET  /raw-uploads/{topic}               → S3 raw 레이어 업로드 이력 조회
+  POST /raw-uploads/{topic}               → 원본 CSV/Excel S3 raw 레이어 업로드
         │
         ▼
-[시각화 계층 - 대시보드 허브 (Streamlit / Plotly Dash)]
+[시각화 계층 - 대시보드 허브 (Streamlit)]
   주제 선택 시 dashboard_registry를 조회하여 해당 대시보드를 동적으로 렌더링
 ```
+
+> `POST /dashboards` (새 주제를 API로 직접 등록)는 아직 없습니다 — 현재 등록은 `dashboard_registry`에 SQL을 직접 INSERT하거나 `register_dashboard.py` 스타일 스크립트로 합니다. 허브의 "New Project" 페이지는 입력값으로 INSERT SQL을 미리보기만 해주는 화면이고, 실제 등록까지 자동으로 이어지진 않습니다 (로드맵 참고).
 
 ### 대시보드 허브 설계
 
@@ -101,20 +107,23 @@ CREATE TABLE dashboard_registry (
     dashboard_id VARCHAR(50) PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
     description VARCHAR(255),
-    chart_type ENUM('correlation', 'comparison', 'trend', 'distribution'),
+    chart_type ENUM('correlation', 'comparison', 'trend', 'distribution', 'realtime_monitor'),
     data_source_table VARCHAR(100) NOT NULL,
     x_axis_column VARCHAR(100),
     y_axis_column VARCHAR(100),
     segment_filter_enabled BOOLEAN DEFAULT TRUE,
     display_order INT,
-    is_active BOOLEAN DEFAULT TRUE
+    is_active BOOLEAN DEFAULT TRUE,
+    data_freshness ENUM('static', 'realtime') DEFAULT 'static',   -- m0001
+    refresh_interval_minutes INT,                                 -- m0001, static이면 NULL
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP                -- m0002
 );
 ```
 
 대시보드 앱은 이 테이블을 조회해 사이드바 메뉴를 동적으로 구성하고, `chart_type`에 대응하는 공용 렌더러로 화면을 그립니다. 특정 주제를 위한 분기 코드는 만들지 않습니다.
 
 ```python
-# app.py (예시)
+# dashboard/Home.py (예시)
 dashboards = get_dashboard_registry()          # MySQL 조회
 
 selected = sidebar_select(dashboards)          # 주제 선택
@@ -128,7 +137,7 @@ render_chart(config["chart_type"], data)       # chart_type별 공용 렌더러 
 
 1. 새 주제의 원본 CSV/Excel을 `s3://<bucket>/insight-dashboard-hub/raw/<topic>/`에 업로드 — 대시보드 허브의 "원본 데이터 업로드" 페이지(`dashboard/pages/`, `POST /raw-uploads/{topic}` 경유)를 쓰거나, `src/storage/s3_client.write_raw_bytes()`를 직접 호출
 2. `src/preprocessing/<topic>/`에 전처리 스크립트 추가 — S3 원본을 읽어 정제 후, 결과를 S3 processed에 Parquet로 저장하고 MySQL `<topic>_agg` 테이블에 적재
-3. `dashboard_registry`에 새 행 추가 (제목, 차트 타입, 데이터 소스 테이블, 축 컬럼 등)
+3. `dashboard_registry`에 새 행 추가 (제목, 차트 타입, 데이터 소스 테이블, 축 컬럼 등) — 현재는 `register_dashboard.py`처럼 topic별 스크립트를 작성해 `INSERT ... ON DUPLICATE KEY UPDATE`로 등록하거나 SQL을 직접 실행. 허브의 "New Project" 페이지는 이 INSERT 문을 입력값 기준으로 미리보기해 주지만 아직 실행까지 연결되어 있진 않음 (로드맵 참고)
 4. 별도의 프론트엔드 코드 수정 없이 허브 실행 시 새 주제가 사이드바 메뉴에 자동으로 노출됨
 
 ### S3 raw 경로 규칙
@@ -162,7 +171,7 @@ write_parquet(processed_df, topic="ott_spending", filename="household_spending_a
 | 원본/가공 데이터 저장 | AWS S3 (raw / processed 레이어 분리) |
 | 데이터베이스 | MySQL |
 | API 서버 | FastAPI |
-| 시각화 | Streamlit / Plotly Dash (대시보드 허브) |
+| 시각화 | Streamlit + Plotly (대시보드 허브 "INSIGHT HUB") |
 
 ## 프로젝트 구조
 
@@ -174,12 +183,24 @@ insight-dashboard-hub/
 │   ├── preprocessing/            # 주제별 전처리 스크립트
 │   │   └── ott_spending/         # 첫 번째 등록 주제: OTT-소비 분석
 │   │       └── run_pipeline.py
-│   ├── db/                       # MySQL 스키마, 적재 스크립트, dashboard_registry 관리
+│   ├── collectors/
+│   │   └── foot_traffic/         # 실시간 상권 유동인구 수집기 (cron 30분 주기)
+│   │       ├── collect.py
+│   │       └── register_dashboard.py
+│   ├── db/                       # MySQL 스키마, 마이그레이션, dashboard_registry 관리
+│   │   ├── migrations/
+│   │   └── seeds/                # foot_traffic_places 등 초기 시드 데이터
 │   ├── api/                      # FastAPI 서빙 계층
 │   └── analysis/                 # 통계 분석, 상관관계 계산
-├── dashboard/                     # 대시보드 허브 (Streamlit)
-│   ├── app.py                     # 메인 진입점 - registry 조회 후 사이드바/차트 동적 렌더링
-│   └── renderers/                 # chart_type별 공용 렌더러
+├── dashboard/                     # 대시보드 허브 (Streamlit, "INSIGHT HUB")
+│   ├── Home.py                    # 메인 진입점 - 프로젝트 카드, 사이드바 네비게이션
+│   ├── theme.py                   # 다크 테마 디자인 시스템 + 사이드바 컴포넌트
+│   ├── api_client.py              # FastAPI 호출 래퍼
+│   ├── pages/
+│   │   ├── project_dashboard.py   # 등록된 주제 하나를 조회/렌더링
+│   │   ├── new_project.py         # 신규 주제 등록 폼 (현재는 SQL 미리보기만, INSERT 미연결)
+│   │   └── data_upload.py         # S3 raw 레이어 원본 업로드
+│   └── renderers/                 # chart_type별 공용 렌더러 (realtime_monitor 포함)
 ├── notebooks/                      # 탐색적 분석 노트북
 ├── requirements.txt
 └── README.md
@@ -212,6 +233,8 @@ python -m src.db.init_db
 # 4-1. (기존 DB가 있다면) 스키마 변경분 마이그레이션 적용
 python -m src.db.migrations.m0001_add_dashboard_freshness_columns
 python -m src.db.migrations.m0002_add_created_at_to_dashboard_registry
+python -m src.db.migrations.m0003_add_demographics_and_forecast_to_foot_traffic
+python -m src.db.migrations.m0004_add_realtime_monitor_chart_type
 
 # 5. 전처리 파이프라인 실행 (S3 원본 → 가공 → MySQL 적재)
 python -m src.preprocessing.ott_spending.run_pipeline
@@ -219,8 +242,8 @@ python -m src.preprocessing.ott_spending.run_pipeline
 # 6. API 서버 실행
 uvicorn src.api.main:app --reload
 
-# 7. 대시보드 허브 실행
-streamlit run dashboard/app.py
+# 7. 대시보드 허브 실행 (INSIGHT HUB)
+streamlit run dashboard/Home.py
 
 # 8. (실시간 상권 유동인구 주제) dashboard_registry에 등록
 python -m src.collectors.foot_traffic.register_dashboard
@@ -284,9 +307,27 @@ cron으로 자연스럽게 옮겨갈 수 있다.
 
 ## 로드맵
 
-- [ ] 두 번째 분석 주제 추가 (예: 여가활동 vs 소비, 소득분위별 미디어 이용 등)
-- [ ] 대시보드 등록 CLI 도구화 (`dashboard_registry` 수동 INSERT 대신 커맨드로 등록)
+metadata-registry 기반 대시보드 허브를 넘어, 궁극적으로는 **"데이터를 업로드하면 AI가 분석 방향을 제안하고 대시보드까지 생성해주는 워크스페이스(INSIGHT HUB)"** 를 지향합니다. 다만 현재 구현 상태(코드 기준) 대비 이 비전은 훨씬 크기 때문에, 실제로 진행 중인 작업과 장기 방향을 분리해 관리합니다.
+
+### 진행 중 / 다음 작업
+
+- [ ] `POST /dashboards` 구현 — 지금은 "New Project" 페이지가 INSERT SQL만 미리보기해주고 실제 등록은 스크립트/수동 SQL로 함
+- [ ] 업로드된 CSV에 대한 경량 데이터 프로파일링 (컬럼 타입 · 결측치 · 기초 통계) — `src/analysis`에 pandas 기반으로 추가, AI 호출 없이도 그 자체로 유용
+- [ ] 위 프로파일링 결과를 요약해 LLM(OpenAI API) 한 번 호출로 "이런 chart_type/분석이 어울립니다" 제안 받기 — 전체 추천 엔진이 아니라 좁은 범위의 보조 기능으로 시작
+- [ ] 단일 대시보드 화면(지표 카드 + 차트) PDF export
+- [ ] 두 번째 정적 분석 주제 추가 (예: 여가활동 vs 소비, 소득분위별 미디어 이용 등)
 - [ ] 세그먼트 축 확장 (소득 5분위/10분위 등)
+
+### 장기 비전 (아직 착수 전)
+
+아래는 방향성만 잡아둔 항목으로, 위 "진행 중" 작업이 끝나기 전까지는 실제 작업 큐에 넣지 않습니다.
+
+- [ ] 자연어 질의(NLQ)로 데이터 조회
+- [ ] 자동 인사이트 요약 / 리포트 작성
+- [ ] 예약 분석 및 이상 탐지 알림
+- [ ] SQL/Google Sheets 등 외부 커넥터 연동
+- [ ] 멀티 워크스페이스 · 협업 기능
+- [ ] 플러그인 시스템
 
 ## 라이선스
 
