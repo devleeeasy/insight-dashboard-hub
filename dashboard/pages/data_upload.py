@@ -18,11 +18,30 @@ import re
 
 import streamlit as st
 
-from dashboard.api_client import ApiError, list_raw_uploads, upload_raw_file
-from dashboard.theme import inject_css
+from dashboard.api_client import ApiError, list_dashboards, list_raw_uploads, upload_raw_file
+from dashboard.theme import (
+    inject_css, render_sidebar_actions, render_sidebar_footer,
+    render_sidebar_nav, render_sidebar_projects, render_topbar,
+)
+
+DASHBOARD_PAGE = "pages/project_dashboard.py"
+NEW_PROJECT_PAGE = "pages/new_project.py"
+UPLOAD_PAGE = "pages/data_upload.py"
 
 st.set_page_config(page_title="원본 데이터 업로드", page_icon="📤", layout="wide")
 inject_css()
+
+
+render_sidebar_nav(pages=[("Home.py", "Home"), (DASHBOARD_PAGE, "Project")])
+try:
+    _dashboards = list_dashboards()
+except ApiError as exc:
+    st.sidebar.error(str(exc))
+    _dashboards = []
+render_sidebar_projects(_dashboards, st.session_state.get("selected_dashboard_id"), DASHBOARD_PAGE)
+render_sidebar_actions([(NEW_PROJECT_PAGE, "＋  New Project"), (UPLOAD_PAGE, "↑  Data Upload")])
+render_sidebar_footer(_dashboards)
+render_topbar()
 
 st.markdown(
     "<div class='topic-title'>원본 데이터 업로드</div>"
